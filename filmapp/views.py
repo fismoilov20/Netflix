@@ -1,4 +1,5 @@
 from django.shortcuts import render
+from django.contrib.postgres.search import TrigramSimilarity
 
 from rest_framework import status
 from rest_framework.views import APIView
@@ -6,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly, AllowAny
+from rest_framework import filters
 
 from .models import *
 from .serializers import *
@@ -28,7 +30,18 @@ from .serializers import *
 class MovieViewSet(ModelViewSet):
     queryset = Movie.objects.all()
     serializer_class = MovieSerializer
-    permission_classes = [IsAuthenticated,]
+    permission_classes = [IsAuthenticatedOrReadOnly,]
+
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['name',]
+    ordering_fields = ['rating',]
+
+    def get_queryset(self):
+        search = self.request.query_params.get('q')
+        if search is not None:
+            self.queryset = Movie.objects.annotate(sim=TrigramSimilarity('name',search)).filter(sim__gt=0.35)
+            return self.queryset
+        return self.queryset
 
     @action(methods=['GET'], detail=True)
     def comments(self, request, pk):                        ## must take 'pk', not any other name!!!
@@ -64,13 +77,17 @@ class ActorViewSet(ModelViewSet):
     queryset = Actor.objects.all()
     serializer_class = ActorSerializer
 
+    filter_backends = [filters.OrderingFilter, filters.SearchFilter]
+    search_fields = ['name',]
+    ordering_fields = ['birth_year',]
+
 
 class CommentViewSet(ModelViewSet):
     queryset = Comment.objects.all()
     serializer_class = CommentSerializer
     permission_classes = [IsAuthenticated,]
 
-    def create(self, request, *args, **kwargs):
+    def create(self, request, *args, **kwargs):                # changing POST request
         serializer = CommentSerializer(data=request.data)      # or  = self.serializer_class(data=request.data) 
         if serializer.is_valid():
             serializer.save(user=request.user)
